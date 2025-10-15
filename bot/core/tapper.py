@@ -30,6 +30,8 @@ class BaseBot:
         self._http_client: Optional[CloudflareScraper] = None
         self._current_proxy: Optional[str] = None
         self._access_token: Optional[str] = None
+        self._access_token_created_time: Optional[float] = None
+        self._token_live_time: int = settings.TOKEN_LIVE_TIME
         self._is_first_run: Optional[bool] = None
         self._init_data: Optional[str] = None
         self._current_ref_id: Optional[str] = None
@@ -57,6 +59,35 @@ class BaseBot:
                 self._current_ref_id = 'APQ6AS5Y'
         return self._current_ref_id
 
+    def _is_token_expired(self) -> bool:
+        """Проверяет, истек ли токен"""
+        if self._access_token_created_time is None:
+            return True
+        return time() - self._access_token_created_time > self._token_live_time
+
+    async def _restart_authorization(self) -> bool:
+        """Перезапускает авторизацию с получением новых init_data"""
+        try:
+            logger.info(f"{self.session_name} | Обновляем init_data...")
+            
+            # Сбрасываем старые данные
+            self._init_data = None
+            self._access_token = None
+            self._access_token_created_time = None
+            
+            # Получаем новые init_data
+            await self.get_tg_web_data()
+            
+            # Обновляем время создания токена
+            self._access_token_created_time = time()
+            
+            logger.info(f"{self.session_name} | Init_data успешно обновлены")
+            return True
+            
+        except Exception as e:
+            logger.error(f"{self.session_name} | Ошибка при обновлении init_data: {e}")
+            return False
+
     async def get_tg_web_data(self, app_name: str = "WildRush_bot", bot_url: str = "https://minimon.app/") -> str:
 
         try:
@@ -74,6 +105,9 @@ class BaseBot:
             )
             
             self._init_data = tg_web_data
+            # Устанавливаем время создания токена при получении новых init_data
+            if self._access_token_created_time is None:
+                self._access_token_created_time = time()
             return tg_web_data
             
         except Exception as e:
@@ -381,6 +415,13 @@ class WildRush(BaseBot):
 
     async def process_bot_logic(self) -> None:
         try:
+            # Проверяем время жизни токена перед выполнением операций
+            if self._is_token_expired():
+                logger.info(f"{self.EMOJI['info']} {self.session_name} | Токен истек, обновляем init_data...")
+                if not await self._restart_authorization():
+                    logger.error(f"{self.EMOJI['error']} {self.session_name} | Не удалось обновить init_data")
+                    return
+            
             if not await self.login():
                 logger.error(f"{self.EMOJI['error']} {self.session_name} | Шерстяные движения при авторизации")
                 return

@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     AUTO_UPDATE: bool = False
     CHECK_UPDATE_INTERVAL: int = 60
     BLACKLISTED_SESSIONS: str = ""
+    
+    MOVE_INVALID_SESSIONS_TO_ERROR: bool = True
+    TOKEN_LIVE_TIME: int = 3600  # Время жизни токена в секундах (1 час)
 
     @property
     def blacklisted_sessions(self) -> List[str]:
