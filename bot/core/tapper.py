@@ -413,6 +413,296 @@ class WildRush(BaseBot):
             logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка при получении награды: {e}")
             return False
 
+    async def get_tasks_list(self) -> Optional[List[Dict]]:
+        """
+        Получает список всех доступных заданий.
+        
+        Returns:
+            List[Dict] со списком заданий или None при ошибке
+        """
+        try:
+            from bot.core.headers import headers
+            
+            payload = {
+                "initData": self._init_data,
+                "action": "list"
+            }
+            
+            response = await self.make_request(
+                method="POST",
+                url="https://minimon.app/php/tasks.php",
+                headers=headers(),
+                json=payload
+            )
+            
+            if not response or not response.get("ok"):
+                logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка получения списка заданий")
+                return None
+                
+            tasks = response.get("data", {}).get("tasks", [])
+            logger.info(f"{self.EMOJI['task']} {self.session_name} | Получено {len(tasks)} заданий")
+            
+            return tasks
+            
+        except Exception as e:
+            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка при получении заданий: {e}")
+            return None
+
+    async def start_task(self, task_id: int) -> Optional[Dict]:
+        """
+        Запускает выполнение задания.
+        
+        Args:
+            task_id: ID задания для запуска
+            
+        Returns:
+            Dict с результатом запуска или None при ошибке
+        """
+        try:
+            from bot.core.headers import headers
+            
+            payload = {
+                "initData": self._init_data,
+                "action": "start",
+                "task_id": task_id
+            }
+            
+            response = await self.make_request(
+                method="POST",
+                url="https://minimon.app/php/tasks.php",
+                headers=headers(),
+                json=payload
+            )
+            
+            if not response or not response.get("ok"):
+                logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка запуска задания {task_id}")
+                return None
+                
+            data = response.get("data", {})
+            verify_delay = data.get("verify_delay_sec", 0)
+            
+            logger.debug(f"{self.EMOJI['task']} {self.session_name} | Задание {task_id} запущено, ожидание {verify_delay}с")
+            
+            return data
+            
+        except Exception as e:
+            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка при запуске задания {task_id}: {e}")
+            return None
+
+    async def claim_task_reward(self, task_id: int, task_name: str = "", task_desc: str = "", task_rewards: List[Dict] = None) -> bool:
+        """
+        Забирает награду за выполненное задание.
+        
+        Args:
+            task_id: ID задания для получения награды
+            task_name: Название задания для логирования
+            task_desc: Описание задания для логирования
+            task_rewards: Список наград задания для логирования
+            
+        Returns:
+            True если награда получена, False в противном случае
+        """
+        try:
+            from bot.core.headers import headers
+            
+            payload = {
+                "initData": self._init_data,
+                "action": "claim",
+                "task_id": task_id
+            }
+            
+            response = await self.make_request(
+                method="POST",
+                url="https://minimon.app/php/tasks.php",
+                headers=headers(),
+                json=payload
+            )
+            
+            if not response or not response.get("ok"):
+                logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка получения награды за задание {task_id}")
+                return False
+                
+            data = response.get("data", {})
+            balances = data.get("balances", {})
+            
+            # Формируем строку с наградами
+            rewards_text = ""
+            if task_rewards:
+                reward_parts = []
+                for reward in task_rewards:
+                    reward_type = reward.get("type", "")
+                    reward_amount = reward.get("amount", 0)
+                    if reward_type == "coin":
+                        reward_parts.append(f"{reward_amount} монет")
+                    elif reward_type == "gem":
+                        reward_parts.append(f"{reward_amount} гемов")
+                    elif reward_type == "dust":
+                        reward_parts.append(f"{reward_amount} пыли")
+                    else:
+                        reward_parts.append(f"{reward_amount} {reward_type}")
+                rewards_text = ", ".join(reward_parts)
+            
+            # Формируем сообщение
+            if task_name and task_desc:
+                message = f"'{task_name}' '{task_desc}' выполнено!"
+            elif task_name:
+                message = f"'{task_name}' выполнено!"
+            else:
+                message = f"Задание {task_id} выполнено!"
+                
+            if rewards_text:
+                message += f" Награда: {rewards_text}!"
+            
+            logger.success(f"{self.EMOJI['success']} {self.session_name} | {message}")
+            
+            # Обновляем данные пользователя если они есть
+            if self.user_data and balances:
+                self.user_data.update(balances)
+                
+            return True
+            
+        except Exception as e:
+            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка при получении награды за задание {task_id}: {e}")
+            return False
+
+    async def complete_task(self, task: Dict) -> bool:
+        """
+        Выполняет одно задание полностью (запуск + ожидание + получение награды).
+        
+        Args:
+            task: Словарь с данными задания
+            
+        Returns:
+            True если задание выполнено успешно, False в противном случае
+        """
+        try:
+            task_id = task.get("id")
+            task_name = task.get("name", "")
+            task_desc = task.get("desc", "")
+            task_rewards = task.get("rewards", [])
+            task_can_claim = task.get("canClaim", False)
+            task_done = task.get("done", False)
+            
+            # Если задание уже готово к получению награды
+            if task_can_claim:
+                success = await self.claim_task_reward(task_id, task_name, task_desc, task_rewards)
+                return success
+            
+            # Если задание уже выполнено, но награда не готова
+            if task_done:
+                return True
+            
+            # Запускаем новое задание
+            start_result = await self.start_task(task_id)
+            if not start_result:
+                return False
+                
+            # Ждем время верификации
+            verify_delay = start_result.get("verify_delay_sec", 8)
+            if verify_delay > 0:
+                await asyncio.sleep(verify_delay)
+            
+            # Добавляем небольшую дополнительную задержку
+            additional_delay = uniform(2, 5)
+            await asyncio.sleep(additional_delay)
+            
+            # Получаем награду
+            success = await self.claim_task_reward(task_id, task_name, task_desc, task_rewards)
+            return success
+                
+        except Exception as e:
+            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка при выполнении задания: {e}")
+            return False
+
+    async def process_tasks(self) -> None:
+        """
+        Обрабатывает все доступные задания, исключая рекламные (video_view, video_click).
+        """
+        try:
+            logger.info(f"{self.EMOJI['task']} {self.session_name} | Начинаем обработку заданий...")
+            
+            # Получаем список заданий
+            tasks = await self.get_tasks_list()
+            if not tasks:
+                logger.warning(f"{self.EMOJI['warning']} {self.session_name} | Не удалось получить список заданий")
+                return
+            
+            # Фильтруем задания с правильной логикой статусов
+            available_tasks = []
+            claimable_tasks = []
+            
+            for task in tasks:
+                task_kind = task.get("kind", "")
+                task_done = task.get("done", False)
+                task_can_claim = task.get("canClaim", False)
+                task_cur = task.get("cur", 0)
+                task_max = task.get("max", 1)
+                task_name = task.get("name", "")
+                
+                # Пропускаем рекламные задания (как запрошено)
+                if task_kind in ["video_view", "video_click"]:
+                    logger.debug(f"{self.EMOJI['debug']} {self.session_name} | Пропускаем рекламное задание: {task_name}")
+                    continue
+                
+                # Пропускаем автоматические задания (computed, ads_threshold)
+                if task_kind in ["computed", "ads_threshold"]:
+                    logger.debug(f"{self.EMOJI['debug']} {self.session_name} | Пропускаем автоматическое задание: {task_name}")
+                    continue
+                
+                # Логика обработки статусов:
+                if task_can_claim:
+                    # Задание готово к получению награды
+                    claimable_tasks.append(task)
+                elif not task_done and task_cur < task_max:
+                    # Задание не выполнено и есть прогресс для выполнения
+                    available_tasks.append(task)
+            
+            total_tasks = len(available_tasks) + len(claimable_tasks)
+            
+            logger.info(f"{self.EMOJI['info']} {self.session_name} | Найдено {len(claimable_tasks)} заданий с готовыми наградами и {len(available_tasks)} новых заданий")
+            
+            if total_tasks == 0:
+                logger.info(f"{self.EMOJI['info']} {self.session_name} | Нет доступных заданий для обработки")
+                return
+            
+            completed_count = 0
+            
+            # Сначала забираем готовые награды
+            for task in claimable_tasks:
+                task_name = task.get("name", "")
+                task_desc = task.get("desc", "")
+                task_rewards = task.get("rewards", [])
+                task_id = task.get("id")
+                
+                # Добавляем задержку между заданиями
+                delay = uniform(2, 5)
+                await asyncio.sleep(delay)
+                
+                success = await self.claim_task_reward(task_id, task_name, task_desc, task_rewards)
+                if success:
+                    completed_count += 1
+                    
+                # Дополнительная задержка после получения награды
+                await asyncio.sleep(uniform(1, 3))
+            
+            # Затем выполняем новые задания
+            for task in available_tasks:
+                # Добавляем задержку между заданиями
+                delay = uniform(3, 8)
+                await asyncio.sleep(delay)
+                
+                success = await self.complete_task(task)
+                if success:
+                    completed_count += 1
+                    
+                # Дополнительная задержка после выполнения
+                await asyncio.sleep(uniform(2, 5))
+            
+            logger.info(f"{self.EMOJI['success']} {self.session_name} | Обработано {completed_count} из {total_tasks} заданий")
+            
+        except Exception as e:
+            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка при обработке заданий: {e}")
+
     async def process_bot_logic(self) -> None:
         try:
             # Проверяем время жизни токена перед выполнением операций
@@ -427,6 +717,9 @@ class WildRush(BaseBot):
                 return
                 
             await self.get_status()
+            
+            # Выполняем доступные задания (исключая video_view и video_click)
+            await self.process_tasks()
             
             # Проверяем статус майнинга
             mining_status = await self.check_mining_status()
