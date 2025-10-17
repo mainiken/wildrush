@@ -152,7 +152,18 @@ class BaseBot:
             async with getattr(self._http_client, method.lower())(url, **kwargs) as response:
                 if response.status == 200:
                     return await response.json()
-                logger.error(f"Request failed with status {response.status}")
+                
+                # Детальная обработка ошибок
+                if response.status == 400:
+                    try:
+                        error_data = await response.json()
+                        error_message = error_data.get("message", "Unknown error")
+                        logger.error(f"Request failed with status 400: {error_message}")
+                    except:
+                        response_text = await response.text()
+                        logger.error(f"Request failed with status 400: {response_text[:200]}")
+                else:
+                    logger.error(f"Request failed with status {response.status}")
                 return None
         except Exception as e:
             logger.error(f"Request error: {str(e)}")
@@ -473,8 +484,13 @@ class WildRush(BaseBot, AdsViewMixin):
                 json=payload
             )
             
-            if not response or not response.get("ok"):
-                logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка запуска задания {task_id}")
+            if not response:
+                logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Не удалось получить ответ при запуске задания {task_id}")
+                return None
+                
+            if not response.get("ok"):
+                error_message = response.get("message", "Неизвестная ошибка")
+                logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка запуска задания {task_id}: {error_message}")
                 return None
                 
             data = response.get("data", {})
@@ -581,6 +597,8 @@ class WildRush(BaseBot, AdsViewMixin):
             task_rewards = task.get("rewards", [])
             task_can_claim = task.get("canClaim", False)
             task_done = task.get("done", False)
+            task_cur = task.get("cur", 0)
+            task_max = task.get("max", 1)
             
             # Если задание уже готово к получению награды
             if task_can_claim:
@@ -589,11 +607,19 @@ class WildRush(BaseBot, AdsViewMixin):
             
             # Если задание уже выполнено, но награда не готова
             if task_done:
+                logger.debug(f"{self.EMOJI['info']} {self._get_session_name()} | Задание '{task_name}' уже выполнено, ожидаем готовности награды")
+                return True
+            
+            # Проверяем, можно ли запустить задание
+            if task_cur >= task_max:
+                logger.debug(f"{self.EMOJI['warning']} {self._get_session_name()} | Задание '{task_name}' уже достигло максимального прогресса ({task_cur}/{task_max})")
                 return True
             
             # Запускаем новое задание
+            logger.debug(f"{self.EMOJI['task']} {self._get_session_name()} | Запускаем задание '{task_name}' (ID: {task_id})")
             start_result = await self.start_task(task_id)
             if not start_result:
+                logger.warning(f"{self.EMOJI['warning']} {self._get_session_name()} | Не удалось запустить задание '{task_name}' (возможно, оно недоступно)")
                 return False
                 
             # Ждем время верификации

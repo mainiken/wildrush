@@ -143,31 +143,31 @@ class AdsViewMixin:
                         timeout=timeout
                     )
                 
-                # logger.info(f"{session_name} | {method} запрос к {url}: статус {response.status_code}")
+                # logger.info(f"{self._get_session_name()} | {method} запрос к {url}: статус {response.status_code}")
                 
                 # Обрабатываем различные статусы ответа
                 if response.status_code == 400:
                     try:
                         error_data = response.json()
-                        # logger.debug(f"{session_name} | Ошибка 400: {error_data}")
+                        # logger.debug(f"{self._get_session_name()} | Ошибка 400: {error_data}")
                     except:
-                        logger.debug(f"{session_name} | Ошибка 400: {response.text[:200]}")
+                        logger.debug(f"{self._get_session_name()} | Ошибка 400: {response.text[:200]}")
                     return None
                 elif response.status_code == 200:
                     try:
                         json_response = response.json()
                         if "adsgram.ai" in url:
-                            logger.debug(f"{session_name} | Успешный ответ от adsgram.ai: {json_response}")
+                            logger.debug(f"{self._get_session_name()} | Успешный ответ от adsgram.ai: {json_response}")
                         return json_response
                     except json.JSONDecodeError:
-                        # logger.debug(f"{session_name} | Не удалось декодировать JSON ответ: {response.text[:200]}")
+                        # logger.debug(f"{self._get_session_name()} | Не удалось декодировать JSON ответ: {response.text[:200]}")
                         return None
                 else:
-                    # logger.debug(f"{session_name} | Неожиданный статус ответа {response.status_code}: {response.text[:200]}")
+                    # logger.debug(f"{self._get_session_name()} | Неожиданный статус ответа {response.status_code}: {response.text[:200]}")
                     return None
                 
             except Exception as e:
-                logger.debug(f"{session_name} | Попытка {attempt + 1}/{self.ads_config.max_retry_attempts} - Ошибка при выполнении запроса к {url}: {e}")
+                logger.debug(f"{self._get_session_name()} | Попытка {attempt + 1}/{self.ads_config.max_retry_attempts} - Ошибка при выполнении запроса к {url}: {e}")
                 if attempt < self.ads_config.max_retry_attempts - 1:
                     time.sleep(self.ads_config.retry_delay)
                     continue
@@ -203,7 +203,7 @@ class AdsViewMixin:
             ]
             return ad_tasks
         
-        logger.warning(f"{session_name} | Не удалось получить список заданий")
+        logger.warning(f"{self._get_session_name()} | Не удалось получить список заданий")
         return None
     
     def request_ad(self, init_data: str, block_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
