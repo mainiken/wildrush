@@ -17,6 +17,7 @@ from bot.utils.first_run import check_is_first_run, append_recurring_session
 from bot.config import settings
 from bot.utils import logger, config_utils, CONFIG_PATH
 from bot.exceptions import InvalidSession
+from bot.core.ads_view_mixin import AdsViewMixin
 
 
 class BaseBot:
@@ -68,7 +69,7 @@ class BaseBot:
     async def _restart_authorization(self) -> bool:
         """Перезапускает авторизацию с получением новых init_data"""
         try:
-            logger.info(f"{self.session_name} | Обновляем init_data...")
+            logger.debug(f"{self.session_name} | Обновляем init_data...")
             
             # Сбрасываем старые данные
             self._init_data = None
@@ -81,7 +82,7 @@ class BaseBot:
             # Обновляем время создания токена
             self._access_token_created_time = time()
             
-            logger.info(f"{self.session_name} | Init_data успешно обновлены")
+            logger.debug(f"{self.session_name} | Init_data успешно обновлены")
             return True
             
         except Exception as e:
@@ -195,7 +196,7 @@ class BaseBot:
 
         raise NotImplementedError("Bot logic must be implemented in child class")
 
-class WildRush(BaseBot):
+class WildRush(BaseBot, AdsViewMixin):
     EMOJI = {
         'info': 'ℹ️',
         'success': '✅',
@@ -219,6 +220,7 @@ class WildRush(BaseBot):
 
     def __init__(self, tg_client: UniversalTelegramClient):
         super().__init__(tg_client)
+        AdsViewMixin.__init__(self)
         self.api_url = "https://minimon.app/php/init.php"
         self.user_data: Optional[Dict] = None
 
@@ -619,6 +621,11 @@ class WildRush(BaseBot):
         Обрабатывает все доступные задания, исключая рекламные (video_view, video_click).
         """
         try:
+            # Проверяем флаг автоматического выполнения ежедневных заданий
+            if not settings.AUTO_DAILY_TASKS:
+                logger.info(f"{self.EMOJI['info']} {self.session_name} | Автоматическое выполнение ежедневных заданий отключено")
+                return
+                
             logger.info(f"{self.EMOJI['task']} {self.session_name} | Начинаем обработку заданий...")
             
             # Получаем список заданий
@@ -639,9 +646,20 @@ class WildRush(BaseBot):
                 task_max = task.get("max", 1)
                 task_name = task.get("name", "")
                 
-                # Пропускаем рекламные задания (как запрошено)
-                if task_kind in ["video_view", "video_click"]:
-                    logger.debug(f"{self.EMOJI['debug']} {self.session_name} | Пропускаем рекламное задание: {task_name}")
+                # Обрабатываем рекламные задания отдельно (по названию)
+                ad_keywords = ["Watch", "watch", "Video", "video", "Ad", "ad", "Реклама", "реклама", "Просмотр", "просмотр"]
+                is_ad_task = any(keyword in task_name for keyword in ad_keywords)
+                
+                if is_ad_task:
+                    logger.info(f"{self.EMOJI['debug']} {self.session_name} | Найдено рекламное задание: '{task_name}' (kind='{task_kind}', done={task_done}, canClaim={task_can_claim})")
+                    if task_can_claim:
+                        claimable_tasks.append(task)
+                    elif not task_done and task_cur < task_max:
+                        # Добавляем рекламные задания в отдельную категорию
+                        if not hasattr(self, '_ad_tasks'):
+                            self._ad_tasks = []
+                        self._ad_tasks.append(task)
+                        logger.info(f"{self.EMOJI['info']} {self.session_name} | Добавлено рекламное задание в очередь: '{task_name}'")
                     continue
                 
                 # Пропускаем автоматические задания (computed, ads_threshold)
@@ -698,16 +716,298 @@ class WildRush(BaseBot):
                 # Дополнительная задержка после выполнения
                 await asyncio.sleep(uniform(2, 5))
             
+            # Обрабатываем рекламные задания
+            if hasattr(self, '_ad_tasks') and self._ad_tasks:
+                # Проверяем флаг автоматического просмотра рекламы
+                if not settings.AUTO_ADS_VIEWING:
+                    logger.info(f"{self.EMOJI['info']} {self.session_name} | Найдено {len(self._ad_tasks)} рекламных заданий, но автоматический просмотр рекламы отключен")
+                    self._ad_tasks = []  # Очищаем список
+                    return
+                    
+                logger.info(f"{self.EMOJI['info']} {self.session_name} | Найдено {len(self._ad_tasks)} рекламных заданий")
+                
+                for ad_task in self._ad_tasks:
+                    try:
+                        # Получаем init_data для рекламных запросов
+                        init_data = await self.get_tg_web_data()
+                        
+                        # Запускаем просмотр рекламы
+                        result = await self.watch_ads_cycle(init_data, max_ads=1)
+                        success = result.get('success', False)
+                        if success:
+                            completed_count += 1
+                            logger.info(f"{self.EMOJI['success']} {self.session_name} | Рекламное задание выполнено: {ad_task.get('name', '')}")
+                        else:
+                            logger.warning(f"{self.EMOJI['warning']} {self.session_name} | Не удалось выполнить рекламное задание: {ad_task.get('name', '')}")
+                        
+                        # Задержка между рекламными заданиями
+                        await asyncio.sleep(uniform(5, 10))
+                        
+                    except Exception as ad_error:
+                        logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка при выполнении рекламного задания: {ad_error}")
+                
+                # Очищаем список рекламных заданий
+                self._ad_tasks = []
+            
             logger.info(f"{self.EMOJI['success']} {self.session_name} | Обработано {completed_count} из {total_tasks} заданий")
             
         except Exception as e:
             logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка при обработке заданий: {e}")
 
+    async def get_bonus_correct_answers(self) -> Optional[Tuple[List[int], str]]:
+        """
+        Получает правильные ответы для ежедневного бонуса из GitHub Gist.
+        
+        Returns:
+            Tuple[List[int], str] с правильными индексами и датой или None при ошибке
+        """
+        try:
+            gist_url = "https://gist.githubusercontent.com/mainiken/b91f1e6353271d76b9864ae599ca7942/raw/8fc99b5a014a6a8a83295fcdf28fa4194bb1ba77/promocode_data.json"
+            
+            if not self._http_client:
+                logger.error(f"{self.EMOJI['error']} {self.session_name} | HTTP клиент не инициализирован")
+                return None
+            
+            # Используем прямой HTTP запрос для получения текстовых данных
+            async with self._http_client.get(gist_url) as response:
+                if response.status != 200:
+                    logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка получения данных бонуса: {response.status}")
+                    return None
+                
+                text_data = await response.text()
+                logger.debug(f"{self.EMOJI['debug']} {self.session_name} | Получен ответ от Gist: '{text_data[:200]}...'")
+                
+                if not text_data.strip() or text_data.strip().lower() == 'none':
+                    logger.warning(f"{self.EMOJI['warning']} {self.session_name} | GitHub Gist содержит некорректные данные: '{text_data.strip()}'")
+                    return None
+                
+                # Парсим JSON из текстового ответа
+                data = json.loads(text_data)
+                
+            correct_idx = data.get("correctIdx", [])
+            gist_day = data.get("day", "")
+            
+            logger.info(
+                f"{self.EMOJI['info']} {self.session_name} | "
+                f"Получены правильные ответы для {gist_day}: {correct_idx}"
+            )
+            
+            return correct_idx, gist_day
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка парсинга JSON: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка получения правильных ответов: {e}")
+            return None
+
+    async def validate_bonus_data_sync(self, api_day: str, gist_day: str) -> bool:
+        """
+        Проверяет синхронизацию данных между API и Gist.
+        
+        Args:
+            api_day: Дата из API bonus.php
+            gist_day: Дата из GitHub Gist
+            
+        Returns:
+            True если данные синхронизированы, False в противном случае
+        """
+        try:
+            if not api_day or not gist_day:
+                logger.warning(f"{self.EMOJI['warning']} {self.session_name} | Отсутствуют данные о дате")
+                return False
+                
+            if api_day != gist_day:
+                logger.warning(
+                    f"{self.EMOJI['warning']} {self.session_name} | "
+                    f"Данные не синхронизированы! API: {api_day}, Gist: {gist_day}. "
+                    f"Ожидаем обновления Gist..."
+                )
+                return False
+                
+            logger.info(
+                f"{self.EMOJI['success']} {self.session_name} | "
+                f"Данные синхронизированы для {api_day}"
+            )
+            return True
+            
+        except Exception as e:
+            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка проверки синхронизации: {e}")
+            return False
+
+    async def check_bonus_status(self) -> Optional[Dict]:
+        """
+        Проверяет статус ежедневного бонуса.
+        
+        Returns:
+            Dict с информацией о бонусе или None при ошибке
+        """
+        try:
+            from bot.core.headers import headers
+            
+            payload = {
+                "initData": self._init_data,
+                "action": "status"
+            }
+            
+            response = await self.make_request(
+                method="POST",
+                url="https://minimon.app/php/bonus.php",
+                headers=headers(),
+                json=payload
+            )
+            
+            if not response or not response.get("ok"):
+                logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка проверки статуса бонуса")
+                return None
+                
+            bonus_data = response.get("data", {})
+            day = bonus_data.get("day", "")
+            grid_size = bonus_data.get("grid_size", 0)
+            correct_targets = bonus_data.get("correct_targets", 0)
+            already_claimed = bonus_data.get("already_claimed", False)
+            
+            logger.info(
+                f"{self.EMOJI['info']} {self.session_name} | "
+                f"Статус бонуса на {day}: "
+                f"{'Уже получен' if already_claimed else 'Доступен'} | "
+                f"Сетка: {grid_size}, Целей: {correct_targets}"
+            )
+            
+            return bonus_data
+            
+        except Exception as e:
+            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка проверки статуса бонуса: {e}")
+            return None
+
+    async def claim_bonus_reward(self, correct_answers: List[int]) -> bool:
+        """
+        Получает награду за ежедневный бонус.
+        
+        Args:
+            correct_answers: Список правильных индексов
+            
+        Returns:
+            True если награда успешно получена, False в противном случае
+        """
+        try:
+            from bot.core.headers import headers
+            
+            payload = {
+                "initData": self._init_data,
+                "action": "claim",
+                "selected": correct_answers
+            }
+            
+            response = await self.make_request(
+                method="POST",
+                url="https://minimon.app/php/bonus.php",
+                headers=headers(),
+                json=payload
+            )
+            
+            if not response or not response.get("ok"):
+                logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка получения бонуса")
+                return False
+                
+            bonus_data = response.get("data", {})
+            day = bonus_data.get("day", "")
+            ok_count = bonus_data.get("ok", 0)
+            total_count = bonus_data.get("total", 0)
+            coins = bonus_data.get("coins", 0)
+            gems = bonus_data.get("gems", 0)
+            correct_idx = bonus_data.get("correctIdx", [])
+            selected_idx = bonus_data.get("selectedIdx", [])
+            
+            logger.success(
+                f"{self.EMOJI['success']} {self.session_name} | "
+                f"Бонус за {day} получен! "
+                f"Угадано: {ok_count}/{total_count} | "
+                f"Награда: {coins} монет, {gems} гемов"
+            )
+            
+            logger.debug(
+                f"{self.EMOJI['debug']} {self.session_name} | "
+                f"Правильные: {correct_idx}, Выбранные: {selected_idx}"
+            )
+            
+            # Обновляем данные пользователя если они есть в ответе
+            if self.user_data and coins > 0:
+                self.user_data['coins'] = self.user_data.get('coins', 0) + coins
+                self.user_data['gems'] = self.user_data.get('gems', 0) + gems
+                
+            return True
+            
+        except Exception as e:
+            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка при получении бонуса: {e}")
+            return False
+
+    async def process_daily_bonus(self) -> None:
+        """
+        Обрабатывает ежедневный бонус: проверяет статус и получает награду если возможно.
+        """
+        try:
+            if not settings.AUTO_BONUS_CLAIM:
+                logger.debug(f"{self.EMOJI['debug']} {self.session_name} | Автоматическое получение бонусов отключено")
+                return
+                
+            logger.info(f"{self.EMOJI['info']} {self.session_name} | Проверяем ежедневный бонус...")
+            
+            # Проверяем статус бонуса
+            bonus_status = await self.check_bonus_status()
+            if not bonus_status:
+                return
+                
+            # Если бонус уже получен, выходим
+            if bonus_status.get("already_claimed", False):
+                logger.info(f"{self.EMOJI['info']} {self.session_name} | Ежедневный бонус уже получен")
+                return
+                
+            api_day = bonus_status.get("day", "")
+            
+            # Получаем правильные ответы и дату из Gist
+            gist_data = await self.get_bonus_correct_answers()
+            if not gist_data:
+                logger.warning(
+                    f"{self.EMOJI['warning']} {self.session_name} | "
+                    f"Не удалось получить правильные ответы из Gist. "
+                    f"GitHub Gist недоступен или содержит некорректные данные. "
+                    f"Пропускаем получение бонуса."
+                )
+                return
+                
+            correct_answers, gist_day = gist_data
+            
+            # Проверяем синхронизацию данных между API и Gist
+            if not await self.validate_bonus_data_sync(api_day, gist_day):
+                logger.warning(
+                    f"{self.EMOJI['warning']} {self.session_name} | "
+                    f"Пропускаем получение бонуса из-за несинхронизированных данных. "
+                    f"API дата: {api_day}, Gist дата: {gist_day}. "
+                    f"Попробуем позже, когда Gist обновится."
+                )
+                return
+                
+            # Добавляем случайную задержку перед получением бонуса
+            random_delay = uniform(5, 15)
+            logger.info(f"{self.EMOJI['info']} {self.session_name} | Ожидание {int(random_delay)}с перед получением бонуса")
+            await asyncio.sleep(random_delay)
+            
+            # Получаем бонус
+            success = await self.claim_bonus_reward(correct_answers)
+            if success:
+                logger.success(f"{self.EMOJI['success']} {self.session_name} | Ежедневный бонус успешно получен!")
+            else:
+                logger.error(f"{self.EMOJI['error']} {self.session_name} | Не удалось получить ежедневный бонус")
+                
+        except Exception as e:
+            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка при обработке ежедневного бонуса: {e}")
+
     async def process_bot_logic(self) -> None:
         try:
             # Проверяем время жизни токена перед выполнением операций
             if self._is_token_expired():
-                logger.info(f"{self.EMOJI['info']} {self.session_name} | Токен истек, обновляем init_data...")
+                logger.debug(f"{self.EMOJI['info']} {self.session_name} | Токен истек, обновляем init_data...")
                 if not await self._restart_authorization():
                     logger.error(f"{self.EMOJI['error']} {self.session_name} | Не удалось обновить init_data")
                     return
@@ -718,8 +1018,27 @@ class WildRush(BaseBot):
                 
             await self.get_status()
             
-            # Выполняем доступные задания (исключая video_view и video_click)
+            # Обрабатываем ежедневный бонус
+            await self.process_daily_bonus()
+            
+            # Выполняем доступные задания (исключая рекламные)
             await self.process_tasks()
+            
+            # Обрабатываем рекламные задания
+            if hasattr(self, '_ad_tasks') and self._ad_tasks:
+                # Проверяем флаг автоматического просмотра рекламы
+                if not settings.AUTO_ADS_VIEWING:
+                    logger.info(f"{self.EMOJI['info']} {self.session_name} | Найдено {len(self._ad_tasks)} рекламных заданий для обработки, но автоматический просмотр рекламы отключен")
+                    self._ad_tasks = []  # Очищаем список
+                else:
+                    logger.info(f"{self.EMOJI['info']} {self.session_name} | Найдено {len(self._ad_tasks)} рекламных заданий для обработки")
+                    # Получаем init_data для рекламного API
+                    if self._init_data:
+                        await self.watch_ads_cycle(self._init_data, max_ads=len(self._ad_tasks))
+                    else:
+                        logger.warning(f"{self.EMOJI['warning']} {self.session_name} | Нет init_data для обработки рекламных заданий")
+                    # Очищаем список после обработки
+                    self._ad_tasks = []
             
             # Проверяем статус майнинга
             mining_status = await self.check_mining_status()

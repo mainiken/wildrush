@@ -2,6 +2,9 @@ from typing import Dict
 from bot.core.agents import generate_random_user_agent
 
 def headers(init_data: str = None) -> dict:
+    # Используем динамический user-agent для лучшей имитации браузера
+    user_agent = generate_random_user_agent(platform='windows', browser='chrome')
+    
     return {
         "accept": "*/*",
         "accept-language": "ru,en;q=0.9,en-GB;q=0.8,en-US;q=0.7",
@@ -15,6 +18,6 @@ def headers(init_data: str = None) -> dict:
         "sec-fetch-dest": "empty",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0"
+        "user-agent": user_agent
     }
 

@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     
     MOVE_INVALID_SESSIONS_TO_ERROR: bool = True
     TOKEN_LIVE_TIME: int = 3600  # Время жизни токена в секундах (1 час)
+    
+    # Настройки выполнения заданий
+    AUTO_DAILY_TASKS: bool = True  # Автоматическое выполнение ежедневных заданий
+    AUTO_ADS_VIEWING: bool = True  # Автоматический просмотр рекламы
+    AUTO_BONUS_CLAIM: bool = True  # Автоматическое получение ежедневных бонусов
 
     @property
     def blacklisted_sessions(self) -> List[str]:
