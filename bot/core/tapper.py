@@ -774,8 +774,7 @@ class WildRush(BaseBot, AdsViewMixin):
                 task_name = task.get("name", "")
                 
                 # Пропускаем рекламные задания (они обрабатываются отдельно)
-                ad_keywords = ["Watch", "watch", "Video", "video", "Ad", "ad", "Реклама", "реклама", "Просмотр", "просмотр"]
-                is_ad_task = any(keyword in task_name for keyword in ad_keywords)
+                is_ad_task = task_kind in ["video_view", "video_click"]
                 
                 if is_ad_task:
                     logger.debug(f"{self.EMOJI['debug']} {self._get_session_name()} | Пропускаем рекламное задание: '{task_name}' (обрабатывается отдельно)")
