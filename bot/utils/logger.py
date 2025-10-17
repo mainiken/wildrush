@@ -5,12 +5,21 @@ from datetime import date
 
 logger.remove()
 
+def _log_filter(record):
+    """Фильтр для логирования в зависимости от настройки DEBUG_LOGGING."""
+    level_name = record["level"].name
+    if level_name == "TRACE":
+        return False
+    if level_name == "DEBUG" and not settings.DEBUG_LOGGING:
+        return False
+    return True
+
 logger.add(
     sink=sys.stdout,
     format="<light-white>{time:YYYY-MM-DD HH:mm:ss}</light-white>"
            " | <level>{level: <8}</level>"
            " | <light-white><b>{message}</b></light-white>",
-    filter=lambda record: record["level"].name != "TRACE",
+    filter=_log_filter,
     colorize=True
 )
 
