@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     "aiocfscrape==1.0.0",
     "aiofiles==24.1.0",
-    "aiohttp==3.9.5",
+    "curl_cffi>=0.7.0",
     "aiohttp-proxy==0.1.2",
     "aiosignal==1.3.1",
     "alembic==1.13.1",

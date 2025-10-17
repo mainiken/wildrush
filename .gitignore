@@ -22,6 +22,7 @@ logs/
 .cursor/
 __pycache__/
 lock_files/
+test/
 
 # Игнорировать файл accounts_config.json в папке bot/config
 bot/config/accounts_config.json

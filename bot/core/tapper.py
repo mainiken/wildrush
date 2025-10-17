@@ -37,7 +37,7 @@ class BaseBot:
         self._init_data: Optional[str] = None
         self._current_ref_id: Optional[str] = None
     
-        session_config = config_utils.get_session_config(self.session_name, CONFIG_PATH)
+        session_config = config_utils.get_session_config(self._get_session_name(), CONFIG_PATH)
         if not all(key in session_config for key in ('api', 'user_agent')):
             logger.critical(f"CHECK accounts_config.json as it might be corrupted")
             exit(-1)
@@ -50,7 +50,7 @@ class BaseBot:
 
     def get_ref_id(self) -> str:
         if self._current_ref_id is None:
-            session_hash = sum(ord(c) for c in self.session_name)
+            session_hash = sum(ord(c) for c in self._get_session_name())
             remainder = session_hash % 10
             if remainder < 6:
                 self._current_ref_id = settings.REF_ID
@@ -69,8 +69,6 @@ class BaseBot:
     async def _restart_authorization(self) -> bool:
         """Перезапускает авторизацию с получением новых init_data"""
         try:
-            logger.debug(f"{self.session_name} | Обновляем init_data...")
-            
             # Сбрасываем старые данные
             self._init_data = None
             self._access_token = None
@@ -82,11 +80,10 @@ class BaseBot:
             # Обновляем время создания токена
             self._access_token_created_time = time()
             
-            logger.debug(f"{self.session_name} | Init_data успешно обновлены")
             return True
             
         except Exception as e:
-            logger.error(f"{self.session_name} | Ошибка при обновлении init_data: {e}")
+            logger.error(f"{self._get_session_name()} | Ошибка при обновлении init_data: {e}")
             return False
 
     async def get_tg_web_data(self, app_name: str = "WildRush_bot", bot_url: str = "https://minimon.app/") -> str:
@@ -137,10 +134,10 @@ class BaseBot:
 
     async def initialize_session(self) -> bool:
         try:
-            self._is_first_run = await check_is_first_run(self.session_name)
+            self._is_first_run = await check_is_first_run(self._get_session_name())
             if self._is_first_run:
-                logger.info(f"First run detected for session {self.session_name}")
-                await append_recurring_session(self.session_name)
+                logger.info(f"First run detected for session {self._get_session_name()}")
+                await append_recurring_session(self._get_session_name())
             return True
         except Exception as e:
             logger.error(f"Session initialization error: {str(e)}")
@@ -176,7 +173,7 @@ class BaseBot:
 
             while True:
                 try:
-                    session_config = config_utils.get_session_config(self.session_name, CONFIG_PATH)
+                    session_config = config_utils.get_session_config(self._get_session_name(), CONFIG_PATH)
                     if not await self.check_and_update_proxy(session_config):
                         logger.warning('Failed to find working proxy. Sleep 5 minutes.')
                         await asyncio.sleep(300)
@@ -247,19 +244,19 @@ class WildRush(BaseBot, AdsViewMixin):
             
             if response and response.get("success"):
                 self.user_data = response.get("user", {})
-                logger.info(f"{self.EMOJI['success']} {self.session_name} | Качественно вошел")
+                logger.info(f"{self.EMOJI['success']} {self._get_session_name()} | Качественно вошел")
                 return True
             else:
-                logger.error(f"{self.EMOJI['error']} {self.session_name} | Хули ты так зашел? Выйди и зайди нормально!")
+                logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Хули ты так зашел? Выйди и зайди нормально!")
                 return False
                 
         except Exception as e:
-            logger.error(f"{self.EMOJI['error']} {self.session_name} | Причина твоих проблем: {e}")
+            logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Причина твоих проблем: {e}")
             return False
 
     async def get_status(self) -> Optional[Dict]:
         if not self.user_data:
-            logger.warning(f"{self.EMOJI['warning']} {self.session_name} | Ты кто сука?")
+            logger.warning(f"{self.EMOJI['warning']} {self._get_session_name()} | Ты кто сука?")
             return None
             
         try:
@@ -276,7 +273,7 @@ class WildRush(BaseBot, AdsViewMixin):
             }
             
             logger.info(
-                f"{self.EMOJI['info']} {self.session_name} | "
+                f"{self.EMOJI['info']} {self._get_session_name()} | "
                 f"{user_info['first_name']} Баланс монетков: {user_info['coins']}, "
                 f"гемов: {user_info['gems']}"
             )
@@ -284,7 +281,7 @@ class WildRush(BaseBot, AdsViewMixin):
             return user_info
             
         except Exception as e:
-            logger.error(f"{self.EMOJI['error']} {self.session_name} | Я хуй знает что происходит, но: {e}")
+            logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Я хуй знает что происходит, но: {e}")
             return None
 
     async def check_mining_status(self) -> Optional[Dict]:
@@ -310,13 +307,13 @@ class WildRush(BaseBot, AdsViewMixin):
             )
             
             if not response or not response.get("ok"):
-                logger.error(f"{self.EMOJI['error']} {self.session_name} | Чет пизда майнингу, ошибочки пошли")
+                logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Чет пизда майнингу, ошибочки пошли")
                 return None
                 
             mining_data = response.get("data", {}).get("mining", {})
             
             if not mining_data:
-                logger.warning(f"{self.EMOJI['warning']} {self.session_name} | Данные майнинга не найдены")
+                logger.warning(f"{self.EMOJI['warning']} {self._get_session_name()} | Данные майнинга не найдены")
                 return None
                 
             left_ms = mining_data.get("left_ms", 0)
@@ -331,7 +328,7 @@ class WildRush(BaseBot, AdsViewMixin):
             seconds = left_seconds % 60
             
             logger.info(
-                f"{self.EMOJI['info']} {self.session_name} | "
+                f"{self.EMOJI['info']} {self._get_session_name()} | "
                 f"Статус майнинга: {label} | "
                 f"Сосал?: {'Да' if can_collect else 'Нет'} | "
                 f"Некст: {hours:02d}:{minutes:02d}:{seconds:02d}"
@@ -339,7 +336,7 @@ class WildRush(BaseBot, AdsViewMixin):
             
             if reward:
                 logger.info(
-                    f"{self.EMOJI['reward']} {self.session_name} | "
+                    f"{self.EMOJI['reward']} {self._get_session_name()} | "
                     f"Урона: {reward.get('coins', 0)}, "
                     f"А получишь за него:{reward.get('amount', 0)} {reward.get('currency', 'TON')}"
                 )
@@ -355,7 +352,7 @@ class WildRush(BaseBot, AdsViewMixin):
             }
             
         except Exception as e:
-            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка проверки статуса майнинга: {e}")
+            logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка проверки статуса майнинга: {e}")
             return None
 
     async def collect_mining_reward(self) -> bool:
@@ -369,7 +366,7 @@ class WildRush(BaseBot, AdsViewMixin):
             # Добавляем рандомную задержку от 0 до 360 секунд
             random_delay = uniform(0, 360)
             logger.info(
-                f"{self.EMOJI['info']} {self.session_name} | "
+                f"{self.EMOJI['info']} {self._get_session_name()} | "
                 f"Терпения тебе, жди: {int(random_delay)}с"
             )
             await asyncio.sleep(random_delay)
@@ -389,7 +386,7 @@ class WildRush(BaseBot, AdsViewMixin):
             )
             
             if not response or not response.get("ok"):
-                logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка получения награды")
+                logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка получения награды")
                 return False
                 
             mining_data = response.get("data", {}).get("mining", {})
@@ -397,12 +394,12 @@ class WildRush(BaseBot, AdsViewMixin):
             
             if reward:
                 logger.success(
-                    f"{self.EMOJI['success']} {self.session_name} | "
+                    f"{self.EMOJI['success']} {self._get_session_name()} | "
                     f"С кайфом залутали: {reward.get('coins', 0)} монет, "
                     f"{reward.get('amount', 0)} {reward.get('currency', 'TON')}"
                 )
             else:
-                logger.success(f"{self.EMOJI['success']} {self.session_name} | Вот это я молодец, монетки забрал")
+                logger.success(f"{self.EMOJI['success']} {self._get_session_name()} | Вот это я молодец, монетки забрал")
                 
             # Обновляем данные пользователя если они есть в ответе
             user_data = response.get("data", {}).get("user")
@@ -412,7 +409,7 @@ class WildRush(BaseBot, AdsViewMixin):
             return True
             
         except Exception as e:
-            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка при получении награды: {e}")
+            logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка при получении награды: {e}")
             return False
 
     async def get_tasks_list(self) -> Optional[List[Dict]]:
@@ -438,16 +435,16 @@ class WildRush(BaseBot, AdsViewMixin):
             )
             
             if not response or not response.get("ok"):
-                logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка получения списка заданий")
+                logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка получения списка заданий")
                 return None
                 
             tasks = response.get("data", {}).get("tasks", [])
-            logger.info(f"{self.EMOJI['task']} {self.session_name} | Получено {len(tasks)} заданий")
+            logger.info(f"{self.EMOJI['task']} {self._get_session_name()} | Получено {len(tasks)} заданий")
             
             return tasks
             
         except Exception as e:
-            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка при получении заданий: {e}")
+            logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка при получении заданий: {e}")
             return None
 
     async def start_task(self, task_id: int) -> Optional[Dict]:
@@ -477,18 +474,18 @@ class WildRush(BaseBot, AdsViewMixin):
             )
             
             if not response or not response.get("ok"):
-                logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка запуска задания {task_id}")
+                logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка запуска задания {task_id}")
                 return None
                 
             data = response.get("data", {})
             verify_delay = data.get("verify_delay_sec", 0)
             
-            logger.debug(f"{self.EMOJI['task']} {self.session_name} | Задание {task_id} запущено, ожидание {verify_delay}с")
+            logger.debug(f"{self.EMOJI['task']} {self._get_session_name()} | Задание {task_id} запущено, ожидание {verify_delay}с")
             
             return data
             
         except Exception as e:
-            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка при запуске задания {task_id}: {e}")
+            logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка при запуске задания {task_id}: {e}")
             return None
 
     async def claim_task_reward(self, task_id: int, task_name: str = "", task_desc: str = "", task_rewards: List[Dict] = None) -> bool:
@@ -521,7 +518,7 @@ class WildRush(BaseBot, AdsViewMixin):
             )
             
             if not response or not response.get("ok"):
-                logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка получения награды за задание {task_id}")
+                logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка получения награды за задание {task_id}")
                 return False
                 
             data = response.get("data", {})
@@ -555,7 +552,7 @@ class WildRush(BaseBot, AdsViewMixin):
             if rewards_text:
                 message += f" Награда: {rewards_text}!"
             
-            logger.success(f"{self.EMOJI['success']} {self.session_name} | {message}")
+            logger.success(f"{self.EMOJI['success']} {self._get_session_name()} | {message}")
             
             # Обновляем данные пользователя если они есть
             if self.user_data and balances:
@@ -564,7 +561,7 @@ class WildRush(BaseBot, AdsViewMixin):
             return True
             
         except Exception as e:
-            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка при получении награды за задание {task_id}: {e}")
+            logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка при получении награды за задание {task_id}: {e}")
             return False
 
     async def complete_task(self, task: Dict) -> bool:
@@ -613,8 +610,112 @@ class WildRush(BaseBot, AdsViewMixin):
             return success
                 
         except Exception as e:
-            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка при выполнении задания: {e}")
+            logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка при выполнении задания: {e}")
             return False
+
+    async def process_ad_tasks(self) -> None:
+        """
+        Обрабатывает рекламные задания независимо от AUTO_DAILY_TASKS.
+        """
+        try:
+            # Проверяем блеклист для автоматического просмотра рекламы
+            session_name = self._get_session_name()
+            if settings.is_ads_viewing_disabled_for_session(session_name):
+                if settings.AUTO_ADS_VIEWING == "ALL":
+                    logger.info(f"{self.EMOJI['info']} {session_name} | Автоматический просмотр рекламы отключен для всех сессий")
+                else:
+                    logger.info(f"{self.EMOJI['info']} {session_name} | Автоматический просмотр рекламы отключен для этой сессии")
+                return
+                
+            logger.info(f"{self.EMOJI['task']} {self._get_session_name()} | Начинаем поиск рекламных заданий...")
+            
+            # Получаем список заданий
+            tasks = await self.get_tasks_list()
+            if not tasks:
+                logger.warning(f"{self.EMOJI['warning']} {self._get_session_name()} | Не удалось получить список заданий")
+                return
+            
+            # Фильтруем только рекламные задания
+            ad_tasks = []
+            claimable_ad_tasks = []
+            
+            logger.info(f"{self.EMOJI['debug']} {self._get_session_name()} | Всего получено заданий: {len(tasks)}")
+            
+            for task in tasks:
+                task_kind = task.get("kind", "")
+                task_done = task.get("done", False)
+                task_can_claim = task.get("canClaim", False)
+                task_cur = task.get("cur", 0)
+                task_max = task.get("max", 1)
+                task_name = task.get("name", "")
+                
+                # Ищем только video_view и video_click задания
+                is_ad_task = task_kind in ["video_view", "video_click"]
+                
+                if is_ad_task:
+                    logger.info(f"{self.EMOJI['debug']} {self._get_session_name()} | Найдено видео задание: '{task_name}' (kind='{task_kind}', done={task_done}, canClaim={task_can_claim}, прогресс={task_cur}/{task_max})")
+                    if task_can_claim:
+                        claimable_ad_tasks.append(task)
+                        logger.info(f"{self.EMOJI['info']} {self._get_session_name()} | Задание готово к получению награды: '{task_name}'")
+                    elif not task_done and not task_can_claim:
+                        ad_tasks.append(task)
+                        remaining = task_max - task_cur
+                        logger.info(f"{self.EMOJI['info']} {self._get_session_name()} | Добавлено видео задание в очередь: '{task_name}' (осталось выполнить: {remaining})")
+            
+            total_ad_tasks = len(ad_tasks) + len(claimable_ad_tasks)
+            
+            if total_ad_tasks == 0:
+                logger.info(f"{self.EMOJI['info']} {self._get_session_name()} | Нет доступных видео заданий (video_view/video_click)")
+                return
+            
+            logger.info(f"{self.EMOJI['info']} {self._get_session_name()} | Найдено {len(claimable_ad_tasks)} готовых к получению наград и {len(ad_tasks)} новых видео заданий")
+            
+            completed_count = 0
+            
+            # Сначала забираем готовые награды за рекламные задания
+            for task in claimable_ad_tasks:
+                task_name = task.get("name", "")
+                task_desc = task.get("desc", "")
+                task_rewards = task.get("rewards", [])
+                task_id = task.get("id")
+                
+                # Добавляем задержку между заданиями
+                delay = uniform(2, 5)
+                await asyncio.sleep(delay)
+                
+                success = await self.claim_task_reward(task_id, task_name, task_desc, task_rewards)
+                if success:
+                    completed_count += 1
+                    
+                # Дополнительная задержка после получения награды
+                await asyncio.sleep(uniform(1, 3))
+            
+            # Затем выполняем новые рекламные задания
+            for ad_task in ad_tasks:
+                try:
+                    # Получаем init_data для рекламных запросов
+                    init_data = await self.get_tg_web_data()
+                    
+                    # Запускаем просмотр рекламы
+                    result = await self.watch_ads_cycle(init_data, max_attempts=100)
+                    success = result.get('success', False)
+                    if success:
+                        completed_count += 1
+                        logger.info(f"{self.EMOJI['success']} {self._get_session_name()} | Рекламное задание выполнено: {ad_task.get('name', '')}")
+                    else:
+                        logger.warning(f"{self.EMOJI['warning']} {self._get_session_name()} | Не удалось выполнить рекламное задание: {ad_task.get('name', '')}")
+                    
+                    # Задержка между рекламными заданиями
+                    await asyncio.sleep(uniform(5, 10))
+                    
+                except Exception as ad_error:
+                    logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка при выполнении рекламного задания: {ad_error}")
+            
+            if completed_count > 0:
+                logger.info(f"{self.EMOJI['success']} {self._get_session_name()} | Обработано {completed_count} рекламных заданий")
+            
+        except Exception as e:
+            logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка при обработке рекламных заданий: {e}")
 
     async def process_tasks(self) -> None:
         """
@@ -623,18 +724,18 @@ class WildRush(BaseBot, AdsViewMixin):
         try:
             # Проверяем флаг автоматического выполнения ежедневных заданий
             if not settings.AUTO_DAILY_TASKS:
-                logger.info(f"{self.EMOJI['info']} {self.session_name} | Автоматическое выполнение ежедневных заданий отключено")
+                logger.info(f"{self.EMOJI['info']} {self._get_session_name()} | Автоматическое выполнение ежедневных заданий отключено")
                 return
                 
-            logger.info(f"{self.EMOJI['task']} {self.session_name} | Начинаем обработку заданий...")
+            logger.info(f"{self.EMOJI['task']} {self._get_session_name()} | Начинаем обработку заданий...")
             
             # Получаем список заданий
             tasks = await self.get_tasks_list()
             if not tasks:
-                logger.warning(f"{self.EMOJI['warning']} {self.session_name} | Не удалось получить список заданий")
+                logger.warning(f"{self.EMOJI['warning']} {self._get_session_name()} | Не удалось получить список заданий")
                 return
             
-            # Фильтруем задания с правильной логикой статусов
+            # Фильтруем задания с правильной логикой статусов (исключаем рекламные)
             available_tasks = []
             claimable_tasks = []
             
@@ -646,25 +747,17 @@ class WildRush(BaseBot, AdsViewMixin):
                 task_max = task.get("max", 1)
                 task_name = task.get("name", "")
                 
-                # Обрабатываем рекламные задания отдельно (по названию)
+                # Пропускаем рекламные задания (они обрабатываются отдельно)
                 ad_keywords = ["Watch", "watch", "Video", "video", "Ad", "ad", "Реклама", "реклама", "Просмотр", "просмотр"]
                 is_ad_task = any(keyword in task_name for keyword in ad_keywords)
                 
                 if is_ad_task:
-                    logger.info(f"{self.EMOJI['debug']} {self.session_name} | Найдено рекламное задание: '{task_name}' (kind='{task_kind}', done={task_done}, canClaim={task_can_claim})")
-                    if task_can_claim:
-                        claimable_tasks.append(task)
-                    elif not task_done and task_cur < task_max:
-                        # Добавляем рекламные задания в отдельную категорию
-                        if not hasattr(self, '_ad_tasks'):
-                            self._ad_tasks = []
-                        self._ad_tasks.append(task)
-                        logger.info(f"{self.EMOJI['info']} {self.session_name} | Добавлено рекламное задание в очередь: '{task_name}'")
+                    logger.debug(f"{self.EMOJI['debug']} {self._get_session_name()} | Пропускаем рекламное задание: '{task_name}' (обрабатывается отдельно)")
                     continue
                 
                 # Пропускаем автоматические задания (computed, ads_threshold)
                 if task_kind in ["computed", "ads_threshold"]:
-                    logger.debug(f"{self.EMOJI['debug']} {self.session_name} | Пропускаем автоматическое задание: {task_name}")
+                    # logger.debug(f"{self.EMOJI['debug']} {self._get_session_name()} | Пропускаем автоматическое задание: {task_name}")
                     continue
                 
                 # Логика обработки статусов:
@@ -677,10 +770,10 @@ class WildRush(BaseBot, AdsViewMixin):
             
             total_tasks = len(available_tasks) + len(claimable_tasks)
             
-            logger.info(f"{self.EMOJI['info']} {self.session_name} | Найдено {len(claimable_tasks)} заданий с готовыми наградами и {len(available_tasks)} новых заданий")
+            logger.info(f"{self.EMOJI['info']} {self._get_session_name()} | Найдено {len(claimable_tasks)} заданий с готовыми наградами и {len(available_tasks)} новых заданий")
             
             if total_tasks == 0:
-                logger.info(f"{self.EMOJI['info']} {self.session_name} | Нет доступных заданий для обработки")
+                logger.info(f"{self.EMOJI['info']} {self._get_session_name()} | Нет доступных заданий для обработки")
                 return
             
             completed_count = 0
@@ -716,43 +809,10 @@ class WildRush(BaseBot, AdsViewMixin):
                 # Дополнительная задержка после выполнения
                 await asyncio.sleep(uniform(2, 5))
             
-            # Обрабатываем рекламные задания
-            if hasattr(self, '_ad_tasks') and self._ad_tasks:
-                # Проверяем флаг автоматического просмотра рекламы
-                if not settings.AUTO_ADS_VIEWING:
-                    logger.info(f"{self.EMOJI['info']} {self.session_name} | Найдено {len(self._ad_tasks)} рекламных заданий, но автоматический просмотр рекламы отключен")
-                    self._ad_tasks = []  # Очищаем список
-                    return
-                    
-                logger.info(f"{self.EMOJI['info']} {self.session_name} | Найдено {len(self._ad_tasks)} рекламных заданий")
-                
-                for ad_task in self._ad_tasks:
-                    try:
-                        # Получаем init_data для рекламных запросов
-                        init_data = await self.get_tg_web_data()
-                        
-                        # Запускаем просмотр рекламы
-                        result = await self.watch_ads_cycle(init_data, max_ads=1)
-                        success = result.get('success', False)
-                        if success:
-                            completed_count += 1
-                            logger.info(f"{self.EMOJI['success']} {self.session_name} | Рекламное задание выполнено: {ad_task.get('name', '')}")
-                        else:
-                            logger.warning(f"{self.EMOJI['warning']} {self.session_name} | Не удалось выполнить рекламное задание: {ad_task.get('name', '')}")
-                        
-                        # Задержка между рекламными заданиями
-                        await asyncio.sleep(uniform(5, 10))
-                        
-                    except Exception as ad_error:
-                        logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка при выполнении рекламного задания: {ad_error}")
-                
-                # Очищаем список рекламных заданий
-                self._ad_tasks = []
-            
-            logger.info(f"{self.EMOJI['success']} {self.session_name} | Обработано {completed_count} из {total_tasks} заданий")
+            logger.info(f"{self.EMOJI['success']} {self._get_session_name()} | Обработано {completed_count} из {total_tasks} заданий")
             
         except Exception as e:
-            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка при обработке заданий: {e}")
+            logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка при обработке заданий: {e}")
 
     async def get_bonus_correct_answers(self) -> Optional[Tuple[List[int], str]]:
         """
@@ -765,20 +825,20 @@ class WildRush(BaseBot, AdsViewMixin):
             gist_url = "https://gist.githubusercontent.com/mainiken/b91f1e6353271d76b9864ae599ca7942/raw/8fc99b5a014a6a8a83295fcdf28fa4194bb1ba77/promocode_data.json"
             
             if not self._http_client:
-                logger.error(f"{self.EMOJI['error']} {self.session_name} | HTTP клиент не инициализирован")
+                logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | HTTP клиент не инициализирован")
                 return None
             
             # Используем прямой HTTP запрос для получения текстовых данных
             async with self._http_client.get(gist_url) as response:
                 if response.status != 200:
-                    logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка получения данных бонуса: {response.status}")
+                    logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка получения данных бонуса: {response.status}")
                     return None
                 
                 text_data = await response.text()
-                logger.debug(f"{self.EMOJI['debug']} {self.session_name} | Получен ответ от Gist: '{text_data[:200]}...'")
+                logger.debug(f"{self.EMOJI['debug']} {self._get_session_name()} | Получен ответ от Gist: '{text_data[:200]}...'")
                 
                 if not text_data.strip() or text_data.strip().lower() == 'none':
-                    logger.warning(f"{self.EMOJI['warning']} {self.session_name} | GitHub Gist содержит некорректные данные: '{text_data.strip()}'")
+                    logger.warning(f"{self.EMOJI['warning']} {self._get_session_name()} | GitHub Gist содержит некорректные данные: '{text_data.strip()}'")
                     return None
                 
                 # Парсим JSON из текстового ответа
@@ -788,17 +848,17 @@ class WildRush(BaseBot, AdsViewMixin):
             gist_day = data.get("day", "")
             
             logger.info(
-                f"{self.EMOJI['info']} {self.session_name} | "
+                f"{self.EMOJI['info']} {self._get_session_name()} | "
                 f"Получены правильные ответы для {gist_day}: {correct_idx}"
             )
             
             return correct_idx, gist_day
             
         except json.JSONDecodeError as e:
-            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка парсинга JSON: {e}")
+            logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка парсинга JSON: {e}")
             return None
         except Exception as e:
-            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка получения правильных ответов: {e}")
+            logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка получения правильных ответов: {e}")
             return None
 
     async def validate_bonus_data_sync(self, api_day: str, gist_day: str) -> bool:
@@ -814,25 +874,25 @@ class WildRush(BaseBot, AdsViewMixin):
         """
         try:
             if not api_day or not gist_day:
-                logger.warning(f"{self.EMOJI['warning']} {self.session_name} | Отсутствуют данные о дате")
+                logger.warning(f"{self.EMOJI['warning']} {self._get_session_name()} | Отсутствуют данные о дате")
                 return False
                 
             if api_day != gist_day:
                 logger.warning(
-                    f"{self.EMOJI['warning']} {self.session_name} | "
+                    f"{self.EMOJI['warning']} {self._get_session_name()} | "
                     f"Данные не синхронизированы! API: {api_day}, Gist: {gist_day}. "
                     f"Ожидаем обновления Gist..."
                 )
                 return False
                 
             logger.info(
-                f"{self.EMOJI['success']} {self.session_name} | "
+                f"{self.EMOJI['success']} {self._get_session_name()} | "
                 f"Данные синхронизированы для {api_day}"
             )
             return True
             
         except Exception as e:
-            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка проверки синхронизации: {e}")
+            logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка проверки синхронизации: {e}")
             return False
 
     async def check_bonus_status(self) -> Optional[Dict]:
@@ -858,7 +918,7 @@ class WildRush(BaseBot, AdsViewMixin):
             )
             
             if not response or not response.get("ok"):
-                logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка проверки статуса бонуса")
+                logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка проверки статуса бонуса")
                 return None
                 
             bonus_data = response.get("data", {})
@@ -868,7 +928,7 @@ class WildRush(BaseBot, AdsViewMixin):
             already_claimed = bonus_data.get("already_claimed", False)
             
             logger.info(
-                f"{self.EMOJI['info']} {self.session_name} | "
+                f"{self.EMOJI['info']} {self._get_session_name()} | "
                 f"Статус бонуса на {day}: "
                 f"{'Уже получен' if already_claimed else 'Доступен'} | "
                 f"Сетка: {grid_size}, Целей: {correct_targets}"
@@ -877,7 +937,7 @@ class WildRush(BaseBot, AdsViewMixin):
             return bonus_data
             
         except Exception as e:
-            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка проверки статуса бонуса: {e}")
+            logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка проверки статуса бонуса: {e}")
             return None
 
     async def claim_bonus_reward(self, correct_answers: List[int]) -> bool:
@@ -907,7 +967,7 @@ class WildRush(BaseBot, AdsViewMixin):
             )
             
             if not response or not response.get("ok"):
-                logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка получения бонуса")
+                logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка получения бонуса")
                 return False
                 
             bonus_data = response.get("data", {})
@@ -920,14 +980,14 @@ class WildRush(BaseBot, AdsViewMixin):
             selected_idx = bonus_data.get("selectedIdx", [])
             
             logger.success(
-                f"{self.EMOJI['success']} {self.session_name} | "
+                f"{self.EMOJI['success']} {self._get_session_name()} | "
                 f"Бонус за {day} получен! "
                 f"Угадано: {ok_count}/{total_count} | "
                 f"Награда: {coins} монет, {gems} гемов"
             )
             
             logger.debug(
-                f"{self.EMOJI['debug']} {self.session_name} | "
+                f"{self.EMOJI['debug']} {self._get_session_name()} | "
                 f"Правильные: {correct_idx}, Выбранные: {selected_idx}"
             )
             
@@ -939,7 +999,7 @@ class WildRush(BaseBot, AdsViewMixin):
             return True
             
         except Exception as e:
-            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка при получении бонуса: {e}")
+            logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка при получении бонуса: {e}")
             return False
 
     async def process_daily_bonus(self) -> None:
@@ -948,10 +1008,10 @@ class WildRush(BaseBot, AdsViewMixin):
         """
         try:
             if not settings.AUTO_BONUS_CLAIM:
-                logger.debug(f"{self.EMOJI['debug']} {self.session_name} | Автоматическое получение бонусов отключено")
+                logger.debug(f"{self.EMOJI['debug']} {self._get_session_name()} | Автоматическое получение бонусов отключено")
                 return
                 
-            logger.info(f"{self.EMOJI['info']} {self.session_name} | Проверяем ежедневный бонус...")
+            logger.info(f"{self.EMOJI['info']} {self._get_session_name()} | Проверяем ежедневный бонус...")
             
             # Проверяем статус бонуса
             bonus_status = await self.check_bonus_status()
@@ -960,7 +1020,7 @@ class WildRush(BaseBot, AdsViewMixin):
                 
             # Если бонус уже получен, выходим
             if bonus_status.get("already_claimed", False):
-                logger.info(f"{self.EMOJI['info']} {self.session_name} | Ежедневный бонус уже получен")
+                logger.info(f"{self.EMOJI['info']} {self._get_session_name()} | Ежедневный бонус уже получен")
                 return
                 
             api_day = bonus_status.get("day", "")
@@ -969,7 +1029,7 @@ class WildRush(BaseBot, AdsViewMixin):
             gist_data = await self.get_bonus_correct_answers()
             if not gist_data:
                 logger.warning(
-                    f"{self.EMOJI['warning']} {self.session_name} | "
+                    f"{self.EMOJI['warning']} {self._get_session_name()} | "
                     f"Не удалось получить правильные ответы из Gist. "
                     f"GitHub Gist недоступен или содержит некорректные данные. "
                     f"Пропускаем получение бонуса."
@@ -981,7 +1041,7 @@ class WildRush(BaseBot, AdsViewMixin):
             # Проверяем синхронизацию данных между API и Gist
             if not await self.validate_bonus_data_sync(api_day, gist_day):
                 logger.warning(
-                    f"{self.EMOJI['warning']} {self.session_name} | "
+                    f"{self.EMOJI['warning']} {self._get_session_name()} | "
                     f"Пропускаем получение бонуса из-за несинхронизированных данных. "
                     f"API дата: {api_day}, Gist дата: {gist_day}. "
                     f"Попробуем позже, когда Gist обновится."
@@ -990,30 +1050,30 @@ class WildRush(BaseBot, AdsViewMixin):
                 
             # Добавляем случайную задержку перед получением бонуса
             random_delay = uniform(5, 15)
-            logger.info(f"{self.EMOJI['info']} {self.session_name} | Ожидание {int(random_delay)}с перед получением бонуса")
+            logger.info(f"{self.EMOJI['info']} {self._get_session_name()} | Ожидание {int(random_delay)}с перед получением бонуса")
             await asyncio.sleep(random_delay)
             
             # Получаем бонус
             success = await self.claim_bonus_reward(correct_answers)
             if success:
-                logger.success(f"{self.EMOJI['success']} {self.session_name} | Ежедневный бонус успешно получен!")
+                logger.success(f"{self.EMOJI['success']} {self._get_session_name()} | Ежедневный бонус успешно получен!")
             else:
-                logger.error(f"{self.EMOJI['error']} {self.session_name} | Не удалось получить ежедневный бонус")
+                logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Не удалось получить ежедневный бонус")
                 
         except Exception as e:
-            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка при обработке ежедневного бонуса: {e}")
+            logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка при обработке ежедневного бонуса: {e}")
 
     async def process_bot_logic(self) -> None:
         try:
             # Проверяем время жизни токена перед выполнением операций
             if self._is_token_expired():
-                logger.debug(f"{self.EMOJI['info']} {self.session_name} | Токен истек, обновляем init_data...")
+                logger.debug(f"{self.EMOJI['info']} {self._get_session_name()} | Токен истек, обновляем init_data...")
                 if not await self._restart_authorization():
-                    logger.error(f"{self.EMOJI['error']} {self.session_name} | Не удалось обновить init_data")
+                    logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Не удалось обновить init_data")
                     return
             
             if not await self.login():
-                logger.error(f"{self.EMOJI['error']} {self.session_name} | Шерстяные движения при авторизации")
+                logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Шерстяные движения при авторизации")
                 return
                 
             await self.get_status()
@@ -1024,28 +1084,15 @@ class WildRush(BaseBot, AdsViewMixin):
             # Выполняем доступные задания (исключая рекламные)
             await self.process_tasks()
             
-            # Обрабатываем рекламные задания
-            if hasattr(self, '_ad_tasks') and self._ad_tasks:
-                # Проверяем флаг автоматического просмотра рекламы
-                if not settings.AUTO_ADS_VIEWING:
-                    logger.info(f"{self.EMOJI['info']} {self.session_name} | Найдено {len(self._ad_tasks)} рекламных заданий для обработки, но автоматический просмотр рекламы отключен")
-                    self._ad_tasks = []  # Очищаем список
-                else:
-                    logger.info(f"{self.EMOJI['info']} {self.session_name} | Найдено {len(self._ad_tasks)} рекламных заданий для обработки")
-                    # Получаем init_data для рекламного API
-                    if self._init_data:
-                        await self.watch_ads_cycle(self._init_data, max_ads=len(self._ad_tasks))
-                    else:
-                        logger.warning(f"{self.EMOJI['warning']} {self.session_name} | Нет init_data для обработки рекламных заданий")
-                    # Очищаем список после обработки
-                    self._ad_tasks = []
+            # Обрабатываем рекламные задания независимо от AUTO_DAILY_TASKS
+            await self.process_ad_tasks()
             
             # Проверяем статус майнинга
             mining_status = await self.check_mining_status()
             if mining_status:
                 # Если награду можно забрать
                 if mining_status.get("can_collect", False):
-                    logger.info(f"{self.EMOJI['reward']} {self.session_name} | Награда готова к получению!")
+                    logger.info(f"{self.EMOJI['reward']} {self._get_session_name()} | Награда готова к получению!")
                     success = await self.collect_mining_reward()
                     if success:
                         # После получения награды проверяем обновленный статус
@@ -1061,24 +1108,23 @@ class WildRush(BaseBot, AdsViewMixin):
                                 minutes = (total_sleep % 3600) // 60
                                 seconds = total_sleep % 60
                                 logger.info(
-                                    f"{self.EMOJI['info']} {self.session_name} | "
-                                    f"Следующая награда через: {hours:02d}:{minutes:02d}:{seconds:02d} "
-                                    f"(+{random_bonus})"
-                                )
+                            f"{self.EMOJI['info']} {self._get_session_name()} | "
+                            f"Следующая награда: {hours:02d}:{minutes:02d}:{seconds:02d}"
+                        )
                                 await asyncio.sleep(total_sleep)
                             else:
                                 # Если время не определено, спим стандартное время
                                 sleep_duration = uniform(3600, 7200)
-                                logger.info(f"{self.EMOJI['info']} {self.session_name} | Сон {int(sleep_duration)}с")
+                                logger.info(f"{self.EMOJI['info']} {self._get_session_name()} | Сон {int(sleep_duration)}с")
                                 await asyncio.sleep(sleep_duration)
                         else:
                             sleep_duration = uniform(3600, 7200)
-                            logger.info(f"{self.EMOJI['info']} {self.session_name} | Сон {int(sleep_duration)}с")
+                            logger.info(f"{self.EMOJI['info']} {self._get_session_name()} | Сон {int(sleep_duration)}с")
                             await asyncio.sleep(sleep_duration)
                     else:
                         # Если не удалось получить награду, ждем и пробуем снова
                         sleep_duration = uniform(300, 600)
-                        logger.info(f"{self.EMOJI['warning']} {self.session_name} | Повтор через {int(sleep_duration)}с")
+                        logger.info(f"{self.EMOJI['warning']} {self._get_session_name()} | Повтор через {int(sleep_duration)}с")
                         await asyncio.sleep(sleep_duration)
                 else:
                     # Награда еще не готова, ждем указанное время + рандом
@@ -1090,24 +1136,23 @@ class WildRush(BaseBot, AdsViewMixin):
                         minutes = (total_sleep % 3600) // 60
                         seconds = total_sleep % 60
                         logger.info(
-                            f"{self.EMOJI['info']} {self.session_name} | "
-                            f"Ожидание награды: {hours:02d}:{minutes:02d}:{seconds:02d} "
-                            f"(+{random_bonus})"
+                            f"{self.EMOJI['info']} {self._get_session_name()} | "
+                            f"Ожидание: {hours:02d}:{minutes:02d}:{seconds:02d}"
                         )
                         await asyncio.sleep(total_sleep)
                     else:
                         # Если время не определено, спим стандартное время
                         sleep_duration = uniform(3600, 7200)
-                        logger.info(f"{self.EMOJI['info']} {self.session_name} | Сон {int(sleep_duration)}с")
+                        logger.info(f"{self.EMOJI['info']} {self._get_session_name()} | Сон {int(sleep_duration)}с")
                         await asyncio.sleep(sleep_duration)
             else:
                 # Если не удалось получить статус майнинга, спим стандартное время
                 sleep_duration = uniform(3600, 7200)
-                logger.info(f"{self.EMOJI['info']} {self.session_name} | Сон {int(sleep_duration)}с")
+                logger.info(f"{self.EMOJI['info']} {self._get_session_name()} | Сон {int(sleep_duration)}с")
                 await asyncio.sleep(sleep_duration)
             
         except Exception as e:
-            logger.error(f"{self.EMOJI['error']} {self.session_name} | Ошибка в логике бота: {e}")
+            logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка в логике бота: {e}")
             raise
 
 async def run_tapper(tg_client: UniversalTelegramClient):

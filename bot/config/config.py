@@ -31,11 +31,24 @@ class Settings(BaseSettings):
     
     # Настройки выполнения заданий
     AUTO_DAILY_TASKS: bool = True  # Автоматическое выполнение ежедневных заданий
-    AUTO_ADS_VIEWING: bool = True  # Автоматический просмотр рекламы
+    AUTO_ADS_VIEWING: str = ""  # Блеклист сессий для просмотра рекламы (через запятую) или "ALL" для отключения всех
     AUTO_BONUS_CLAIM: bool = True  # Автоматическое получение ежедневных бонусов
 
     @property
     def blacklisted_sessions(self) -> List[str]:
         return [s.strip() for s in self.BLACKLISTED_SESSIONS.split(',') if s.strip()]
+
+    @property
+    def ads_viewing_blacklisted_sessions(self) -> List[str]:
+        """Возвращает список сессий, исключенных из просмотра рекламы."""
+        if not self.AUTO_ADS_VIEWING:
+            return []
+        return [s.strip() for s in self.AUTO_ADS_VIEWING.split(',') if s.strip()]
+
+    def is_ads_viewing_disabled_for_session(self, session_name: str) -> bool:
+        """Проверяет, отключен ли просмотр рекламы для конкретной сессии."""
+        if self.AUTO_ADS_VIEWING == "ALL":
+            return True
+        return session_name in self.ads_viewing_blacklisted_sessions
 
 settings = Settings()
