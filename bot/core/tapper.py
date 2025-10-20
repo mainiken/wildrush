@@ -847,7 +847,7 @@ class WildRush(BaseBot, AdsViewMixin):
             Tuple[List[int], str] с правильными индексами и датой или None при ошибке
         """
         try:
-            gist_url = "https://gist.githubusercontent.com/mainiken/b91f1e6353271d76b9864ae599ca7942/raw/8fc99b5a014a6a8a83295fcdf28fa4194bb1ba77/promocode_data.json"
+            gist_url = "https://gist.githubusercontent.com/mainiken/b91f1e6353271d76b9864ae599ca7942/raw/c4ff8bd22a4491062fdac76a492a3ab872b122fc/promocode_data.json"
             
             if not self._http_client:
                 logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | HTTP клиент не инициализирован")
@@ -895,20 +895,22 @@ class WildRush(BaseBot, AdsViewMixin):
             gist_day: Дата из GitHub Gist
             
         Returns:
-            True если данные синхронизированы, False в противном случае
+            True если данные можно использовать, False в противном случае
         """
         try:
             if not api_day or not gist_day:
                 logger.warning(f"{self.EMOJI['warning']} {self._get_session_name()} | Отсутствуют данные о дате")
                 return False
                 
+            # Логируем несоответствие дат, но продолжаем использовать данные
             if api_day != gist_day:
-                logger.warning(
-                    f"{self.EMOJI['warning']} {self._get_session_name()} | "
-                    f"Данные не синхронизированы! API: {api_day}, Gist: {gist_day}. "
-                    f"Ожидаем обновления Gist..."
+                logger.info(
+                    f"{self.EMOJI['info']} {self._get_session_name()} | "
+                    f"Даты не совпадают: API: {api_day}, Gist: {gist_day}. "
+                    f"Используем доступные данные из Gist."
                 )
-                return False
+                # Возвращаем True, так как данные можно использовать
+                return True
                 
             logger.info(
                 f"{self.EMOJI['success']} {self._get_session_name()} | "
