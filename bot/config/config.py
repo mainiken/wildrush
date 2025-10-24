@@ -27,7 +27,10 @@ class Settings(BaseSettings):
     BLACKLISTED_SESSIONS: str = ""
     
     MOVE_INVALID_SESSIONS_TO_ERROR: bool = True
-    TOKEN_LIVE_TIME: int = 3600  # Время жизни токена в секундах (1 час)
+    TOKEN_LIVE_TIME: int = 3600
+    
+    AUTO_BACKUP_SESSIONS: bool = True
+    AUTO_RESTORE_INVALID_SESSIONS: bool = True
     
     # Настройки выполнения заданий
     AUTO_DAILY_TASKS: bool = True  # Автоматическое выполнение ежедневных заданий

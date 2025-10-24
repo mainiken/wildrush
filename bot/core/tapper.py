@@ -148,26 +148,37 @@ class BaseBot:
         if not self._http_client:
             raise InvalidSession("HTTP client not initialized")
 
-        try:
-            async with getattr(self._http_client, method.lower())(url, **kwargs) as response:
-                if response.status == 200:
-                    return await response.json()
-                
-                # Детальная обработка ошибок
-                if response.status == 400:
-                    try:
-                        error_data = await response.json()
-                        error_message = error_data.get("message", "Unknown error")
-                        logger.error(f"Request failed with status 400: {error_message}")
-                    except:
-                        response_text = await response.text()
-                        logger.error(f"Request failed with status 400: {response_text[:200]}")
-                else:
-                    logger.error(f"Request failed with status {response.status}")
+        for attempt in range(2):
+            try:
+                async with getattr(self._http_client, method.lower())(url, **kwargs) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    
+                    if response.status in (502, 503, 504):
+                        from bot.exceptions import ServerUnavailableError
+                        logger.warning(f"\u0421\u0435\u0440\u0432\u0435\u0440 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d ({response.status}), \u043f\u043e\u0432\u0442\u043e\u0440 \u0447\u0435\u0440\u0435\u0437 10\u0441...")
+                        if attempt < 1:
+                            await asyncio.sleep(10)
+                            continue
+                        else:
+                            raise ServerUnavailableError(f"Server unavailable: {response.status}")
+                    
+                    if response.status == 400:
+                        try:
+                            error_data = await response.json()
+                            error_message = error_data.get("message", "Unknown error")
+                            logger.error(f"Request failed with status 400: {error_message}")
+                        except:
+                            response_text = await response.text()
+                            logger.error(f"Request failed with status 400: {response_text[:200]}")
+                    else:
+                        logger.error(f"Request failed with status {response.status}")
+                    return None
+            except Exception as e:
+                if "ServerUnavailableError" in str(type(e).__name__):
+                    raise
+                logger.error(f"Request error: {str(e)}")
                 return None
-        except Exception as e:
-            logger.error(f"Request error: {str(e)}")
-            return None
 
     async def run(self) -> None:
 

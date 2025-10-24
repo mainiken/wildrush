@@ -18,7 +18,8 @@ from bot.utils import logger, config_utils, proxy_utils, CONFIG_PATH, SESSIONS_P
 from bot.core.tapper import run_tapper
 from bot.core.registrator import register_sessions
 from bot.utils.updater import UpdateManager
-from bot.exceptions import InvalidSession
+from bot.exceptions import InvalidSession, ServerUnavailableError
+from bot.utils.session_backup import SessionBackupManager
 
 from telethon.errors import (
     AuthKeyUnregisteredError, AuthKeyDuplicatedError, AuthKeyError,
@@ -269,6 +270,12 @@ async def run_tasks() -> None:
     await config_utils.restructure_config(CONFIG_PATH)
     await init_config_file()
     
+    if settings.AUTO_BACKUP_SESSIONS:
+        backup_manager = SessionBackupManager(SESSIONS_PATH)
+        backed_up = backup_manager.create_all_backups()
+        if backed_up > 0:
+            logger.info(f"✅ Создано {backed_up} бэкапов сессий")
+    
     base_tasks = []
     
     if settings.AUTO_UPDATE:
@@ -300,23 +307,47 @@ async def handle_tapper_session(tg_client: UniversalTelegramClient, stats_bot: O
     try:
         logger.info(f"{session_name} | Starting session")
         await run_tapper(tg_client=tg_client)
+    
+    except ServerUnavailableError as e:
+        logger.warning(f"\u0421\u0435\u0440\u0432\u0435\u0440 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d \u0434\u043b\u044f {session_name}: {e}")
+        if settings.AUTO_RESTORE_INVALID_SESSIONS:
+            backup_manager = SessionBackupManager(SESSIONS_PATH)
+            if backup_manager.backup_exists(session_name):
+                logger.info(f"\ud83d\udd04 \u0412\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435 {session_name} \u0438\u0437 \u0431\u044d\u043a\u0430\u043f\u0430...")
+                if backup_manager.restore_from_backup(session_name):
+                    logger.info(f"\u2705 \u0421\u0435\u0441\u0441\u0438\u044f {session_name} \u0432\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u0430")
+                else:
+                    logger.error(f"\u274c \u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0432\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c {session_name}")
+    
     except InvalidSession as e:
         logger.error(f"Invalid session: {session_name}: {e}")
         if settings.DEBUG_LOGGING:
             logger.debug(f"[{session_name}] InvalidSession details: {e}")
+        
+        if settings.AUTO_RESTORE_INVALID_SESSIONS:
+            backup_manager = SessionBackupManager(SESSIONS_PATH)
+            if backup_manager.backup_exists(session_name):
+                logger.info(f"\ud83d\udd04 \u0412\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435 {session_name} \u0438\u0437 \u0431\u044d\u043a\u0430\u043f\u0430...")
+                if backup_manager.restore_from_backup(session_name):
+                    logger.info(f"\u2705 \u0421\u0435\u0441\u0441\u0438\u044f {session_name} \u0432\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u0430")
+                    return
+        
         await move_invalid_session_to_error_folder(session_name)
+    
     except (AuthKeyUnregisteredError, AuthKeyDuplicatedError, AuthKeyError, 
             SessionPasswordNeededError) as e:
         logger.error(f"Authentication error for Telethon session {session_name}: {e}")
         if settings.DEBUG_LOGGING:
             logger.debug(f"[{session_name}] Telethon Auth error details: {e}")
         await move_invalid_session_to_error_folder(session_name)
+    
     except (PyrogramAuthKeyUnregisteredError,
             PyrogramSessionPasswordNeededError, PyrogramSessionRevoked) as e:
         logger.error(f"Authentication error for Pyrogram session {session_name}: {e}")
         if settings.DEBUG_LOGGING:
             logger.debug(f"[{session_name}] Pyrogram Auth error details: {e}")
         await move_invalid_session_to_error_folder(session_name)
+    
     except Exception as e:
         logger.error(f"Unexpected error in session {session_name}: {e}")
         if settings.DEBUG_LOGGING:
