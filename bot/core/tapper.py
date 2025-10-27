@@ -858,7 +858,7 @@ class WildRush(BaseBot, AdsViewMixin):
             Tuple[List[int], str] с правильными индексами и датой или None при ошибке
         """
         try:
-            gist_url = "https://gist.githubusercontent.com/mainiken/b91f1e6353271d76b9864ae599ca7942/raw/c4ff8bd22a4491062fdac76a492a3ab872b122fc/promocode_data.json"
+            gist_url = "https://gist.githubusercontent.com/mainiken/b91f1e6353271d76b9864ae599ca7942/raw/promocode_data.json"
             
             if not self._http_client:
                 logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | HTTP клиент не инициализирован")
