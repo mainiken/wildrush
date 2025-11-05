@@ -434,6 +434,312 @@ class WildRush(BaseBot, AdsViewMixin):
             logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка при получении награды: {e}")
             return False
 
+    async def check_premium_active(self) -> Optional[bool]:
+        """
+        Проверяет наличие активного премиум-пасса у текущего аккаунта.
+
+        Returns:
+            True при активном премиуме, False при неактивном, None при ошибке
+        """
+        try:
+            from bot.core.headers import headers
+
+            payload = {
+                "initData": self._init_data
+            }
+
+            response = await self.make_request(
+                method="POST",
+                url="https://minimon.app/php/get_wallet.php",
+                headers=headers(),
+                json=payload
+            )
+
+            if not response:
+                logger.error(
+                    f"{self.EMOJI['error']} {self._get_session_name()} | "
+                    f"Не удалось проверить статус премиума"
+                )
+                return None
+
+            data = response.get("data", response)
+            is_premium = data.get("is_premium")
+
+            if isinstance(is_premium, bool):
+                return is_premium
+            if isinstance(is_premium, int):
+                return is_premium == 1
+
+            # На случай иной схемы ответа: isPremium
+            is_premium_alt = data.get("isPremium")
+            if isinstance(is_premium_alt, bool):
+                return is_premium_alt
+            if isinstance(is_premium_alt, int):
+                return is_premium_alt == 1
+
+            logger.warning(
+                f"{self.EMOJI['warning']} {self._get_session_name()} | "
+                f"Поле статуса премиума не найдено в ответе"
+            )
+            return None
+        except Exception as e:
+            logger.error(
+                f"{self.EMOJI['error']} {self._get_session_name()} | "
+                f"Ошибка проверки премиума: {e}"
+            )
+            return None
+
+    async def get_premium_state(self) -> Optional[Dict[str, Any]]:
+        """
+        Получает состояние премиум-пасса и время до ближайшего клейма.
+
+        Returns:
+            Dict с ключами: is_premium, next_claim_at (datetime), sleep_seconds
+            или None при ошибке
+        """
+        try:
+            from bot.core.headers import headers
+            from datetime import datetime, timezone
+            from time import time
+
+            payload = {
+                "initData": self._init_data,
+                "action": "state"
+            }
+
+            response = await self.make_request(
+                method="POST",
+                url="https://minimon.app/php/premium.php",
+                headers=headers(),
+                json=payload
+            )
+
+            if not response or not response.get("ok"):
+                logger.error(
+                    f"{self.EMOJI['error']} {self._get_session_name()} | "
+                    f"Не удалось получить состояние премиума"
+                )
+                return None
+
+            data = response.get("data", {})
+            is_premium = data.get("isPremium", False)
+            next_claim_ms = data.get("nextClaimAt")
+
+            if next_claim_ms is None:
+                logger.warning(
+                    f"{self.EMOJI['warning']} {self._get_session_name()} | "
+                    f"В ответе отсутствует nextClaimAt"
+                )
+                return None
+
+            now_sec = time()
+            next_claim_sec = max(0, int(next_claim_ms / 1000))
+            sleep_seconds = max(0, next_claim_sec - int(now_sec))
+
+            result = {
+                "is_premium": bool(is_premium),
+                "next_claim_at": datetime.fromtimestamp(next_claim_sec, tz=timezone.utc),
+                "sleep_seconds": sleep_seconds
+            }
+
+            return result
+        except Exception as e:
+            logger.error(
+                f"{self.EMOJI['error']} {self._get_session_name()} | "
+                f"Ошибка получения состояния премиума: {e}"
+            )
+            return None
+
+    async def sleep_until_next_premium_event(self) -> None:
+        """
+        Проверяет наличие премиума и засыпает до ближайшего события премиума.
+        Если премиум отсутствует или время не найдено, завершает без ожидания.
+        """
+        try:
+            premium_active = await self.check_premium_active()
+            if premium_active is False:
+                logger.info(
+                    f"{self.EMOJI['info']} {self._get_session_name()} | "
+                    f"Премиум-пасс не активен, ожидание не требуется"
+                )
+                return
+
+            if premium_active is None:
+                logger.warning(
+                    f"{self.EMOJI['warning']} {self._get_session_name()} | "
+                    f"Статус премиума неизвестен, пропускаю ожидание"
+                )
+                return
+
+            state = await self.get_premium_state()
+            if not state:
+                logger.warning(
+                    f"{self.EMOJI['warning']} {self._get_session_name()} | "
+                    f"Не удалось определить время события премиума"
+                )
+                return
+
+            if not state.get("is_premium", False):
+                logger.info(
+                    f"{self.EMOJI['info']} {self._get_session_name()} | "
+                    f"Премиум-пасс не активен по данным состояния"
+                )
+                return
+
+            sleep_seconds = state.get("sleep_seconds", 0)
+            if sleep_seconds <= 0:
+                logger.info(
+                    f"{self.EMOJI['info']} {self._get_session_name()} | "
+                    f"Событие уже доступно или время неизвестно"
+                )
+                return
+
+            bonus = randint(0, 60)
+            total_sleep = sleep_seconds + bonus
+            hours = total_sleep // 3600
+            minutes = (total_sleep % 3600) // 60
+            seconds = total_sleep % 60
+
+            logger.info(
+                f"{self.EMOJI['info']} {self._get_session_name()} | "
+                f"Сон до премиума: {hours:02d}:{minutes:02d}:{seconds:02d}"
+            )
+            await asyncio.sleep(total_sleep)
+        except Exception as e:
+            logger.error(
+                f"{self.EMOJI['error']} {self._get_session_name()} | "
+                f"Ошибка ожидания премиум события: {e}"
+            )
+
+    async def sleep_until_nearest_event(self, mining_left_seconds: Optional[int]) -> None:
+        """
+        Засыпает до ближайшего события: майнинг или премиум-клейм.
+        При отсутствии обоих времен использует стандартное ожидание.
+        """
+        try:
+            premium_seconds: Optional[int] = None
+            premium_active = await self.check_premium_active()
+            if premium_active is True:
+                state = await self.get_premium_state()
+                if state and state.get("is_premium", False):
+                    sec = int(state.get("sleep_seconds", 0))
+                    if sec > 0:
+                        premium_seconds = sec
+
+            candidates = []
+            if mining_left_seconds and mining_left_seconds > 0:
+                candidates.append((mining_left_seconds, "Майнинг"))
+            if premium_seconds and premium_seconds > 0:
+                candidates.append((premium_seconds, "Премиум"))
+
+            if candidates:
+                sleep_seconds, source = min(candidates, key=lambda x: x[0])
+                hours = sleep_seconds // 3600
+                minutes = (sleep_seconds % 3600) // 60
+                seconds = sleep_seconds % 60
+                logger.info(
+                    f"{self.EMOJI['info']} {self._get_session_name()} | "
+                    f"Ожидание ближайшего события [{source}]: "
+                    f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                )
+                await asyncio.sleep(sleep_seconds)
+                return
+
+            sleep_duration = uniform(3600, 7200)
+            logger.info(
+                f"{self.EMOJI['info']} {self._get_session_name()} | "
+                f"Сон {int(sleep_duration)}с"
+            )
+            await asyncio.sleep(sleep_duration)
+        except Exception as e:
+            logger.error(
+                f"{self.EMOJI['error']} {self._get_session_name()} | "
+                f"Ошибка ожидания ближайшего события: {e}"
+            )
+
+    async def claim_premium_reward(self) -> bool:
+        """
+        Получает награду премиум-пасса и логирует результат.
+
+        Returns:
+            True если награда успешно получена, False в противном случае
+        """
+        try:
+            from bot.core.headers import headers
+
+            random_delay = uniform(2, 8)
+            logger.info(
+                f"{self.EMOJI['info']} {self._get_session_name()} | "
+                f"Небольшая задержка перед клеймом: {int(random_delay)}с"
+            )
+            await asyncio.sleep(random_delay)
+
+            payload = {
+                "initData": self._init_data,
+                "action": "claim"
+            }
+
+            response = await self.make_request(
+                method="POST",
+                url="https://minimon.app/php/premium.php",
+                headers=headers(),
+                json=payload
+            )
+
+            if not response or not response.get("ok"):
+                logger.error(
+                    f"{self.EMOJI['error']} {self._get_session_name()} | "
+                    f"Ошибка получения награды премиума"
+                )
+                return False
+
+            data = response.get("data", {})
+            applied = data.get("applied", {})
+            reward_type = applied.get("type")
+            reward_qty = applied.get("qty")
+            balances = data.get("balances", {})
+
+            if reward_type and reward_qty is not None:
+                logger.success(
+                    f"{self.EMOJI['success']} {self._get_session_name()} | "
+                    f"Премиум награда: {reward_qty} {reward_type}"
+                )
+            else:
+                logger.success(
+                    f"{self.EMOJI['success']} {self._get_session_name()} | "
+                    f"Премиум награда получена"
+                )
+
+            if balances:
+                coins = balances.get("coins")
+                gems = balances.get("gems")
+                dust = balances.get("dust")
+                ton = balances.get("ton")
+                logger.info(
+                    f"{self.EMOJI['balance']} {self._get_session_name()} | "
+                    f"Баланс: монет={coins}, гемов={gems}, пыли={dust}, TON={ton}"
+                )
+
+            next_claim_ms = data.get("nextClaimAt")
+            if next_claim_ms:
+                from time import time
+                left_seconds = max(0, int(next_claim_ms / 1000) - int(time()))
+                hours = left_seconds // 3600
+                minutes = (left_seconds % 3600) // 60
+                seconds = left_seconds % 60
+                logger.info(
+                    f"{self.EMOJI['info']} {self._get_session_name()} | "
+                    f"Следующий премиум-клейм через: {hours:02d}:{minutes:02d}:{seconds:02d}"
+                )
+
+            return True
+        except Exception as e:
+            logger.error(
+                f"{self.EMOJI['error']} {self._get_session_name()} | "
+                f"Ошибка клейма премиума: {e}"
+            )
+            return False
+
     async def get_tasks_list(self) -> Optional[List[Dict]]:
         """
         Получает список всех доступных заданий.
@@ -1115,7 +1421,37 @@ class WildRush(BaseBot, AdsViewMixin):
                 return
                 
             await self.get_status()
-            
+
+            logger.info(f"{self.EMOJI['info']} {self._get_session_name()} | Проверяем премиум-пасс...")
+            premium_active = await self.check_premium_active()
+            if premium_active is True:
+                premium_state = await self.get_premium_state()
+                if premium_state:
+                    sleep_seconds = premium_state.get("sleep_seconds", 0)
+                    hours = sleep_seconds // 3600
+                    minutes = (sleep_seconds % 3600) // 60
+                    seconds = sleep_seconds % 60
+                    logger.info(
+                        f"{self.EMOJI['info']} {self._get_session_name()} | "
+                        f"Премиум активен | Следующий клейм через: "
+                        f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                    )
+                else:
+                    logger.warning(
+                        f"{self.EMOJI['warning']} {self._get_session_name()} | "
+                        f"Состояние премиума недоступно"
+                    )
+            elif premium_active is False:
+                logger.info(
+                    f"{self.EMOJI['info']} {self._get_session_name()} | "
+                    f"Премиум-пасс не активен"
+                )
+            else:
+                logger.warning(
+                    f"{self.EMOJI['warning']} {self._get_session_name()} | "
+                    f"Не удалось проверить премиум-пасс"
+                )
+
             # Обрабатываем ежедневный бонус
             await self.process_daily_bonus()
             
@@ -1137,28 +1473,10 @@ class WildRush(BaseBot, AdsViewMixin):
                         await asyncio.sleep(2)
                         updated_status = await self.check_mining_status()
                         if updated_status:
-                            left_seconds = updated_status.get("left_seconds", 0)
-                            if left_seconds > 0:
-                                # Добавляем рандомное время от 0 до 360 секунд к времени ожидания
-                                random_bonus = randint(0, 360)
-                                total_sleep = left_seconds + random_bonus
-                                hours = total_sleep // 3600
-                                minutes = (total_sleep % 3600) // 60
-                                seconds = total_sleep % 60
-                                logger.info(
-                            f"{self.EMOJI['info']} {self._get_session_name()} | "
-                            f"Следующая награда: {hours:02d}:{minutes:02d}:{seconds:02d}"
-                        )
-                                await asyncio.sleep(total_sleep)
-                            else:
-                                # Если время не определено, спим стандартное время
-                                sleep_duration = uniform(3600, 7200)
-                                logger.info(f"{self.EMOJI['info']} {self._get_session_name()} | Сон {int(sleep_duration)}с")
-                                await asyncio.sleep(sleep_duration)
+                            left_seconds = int(updated_status.get("left_seconds", 0))
+                            await self.sleep_until_nearest_event(left_seconds)
                         else:
-                            sleep_duration = uniform(3600, 7200)
-                            logger.info(f"{self.EMOJI['info']} {self._get_session_name()} | Сон {int(sleep_duration)}с")
-                            await asyncio.sleep(sleep_duration)
+                            await self.sleep_until_nearest_event(None)
                     else:
                         # Если не удалось получить награду, ждем и пробуем снова
                         sleep_duration = uniform(300, 600)
@@ -1166,28 +1484,11 @@ class WildRush(BaseBot, AdsViewMixin):
                         await asyncio.sleep(sleep_duration)
                 else:
                     # Награда еще не готова, ждем указанное время + рандом
-                    left_seconds = mining_status.get("left_seconds", 0)
-                    if left_seconds > 0:
-                        random_bonus = randint(0, 360)
-                        total_sleep = left_seconds + random_bonus
-                        hours = total_sleep // 3600
-                        minutes = (total_sleep % 3600) // 60
-                        seconds = total_sleep % 60
-                        logger.info(
-                            f"{self.EMOJI['info']} {self._get_session_name()} | "
-                            f"Ожидание: {hours:02d}:{minutes:02d}:{seconds:02d}"
-                        )
-                        await asyncio.sleep(total_sleep)
-                    else:
-                        # Если время не определено, спим стандартное время
-                        sleep_duration = uniform(3600, 7200)
-                        logger.info(f"{self.EMOJI['info']} {self._get_session_name()} | Сон {int(sleep_duration)}с")
-                        await asyncio.sleep(sleep_duration)
+                    left_seconds = int(mining_status.get("left_seconds", 0))
+                    await self.sleep_until_nearest_event(left_seconds)
             else:
                 # Если не удалось получить статус майнинга, спим стандартное время
-                sleep_duration = uniform(3600, 7200)
-                logger.info(f"{self.EMOJI['info']} {self._get_session_name()} | Сон {int(sleep_duration)}с")
-                await asyncio.sleep(sleep_duration)
+                await self.sleep_until_nearest_event(None)
             
         except Exception as e:
             logger.error(f"{self.EMOJI['error']} {self._get_session_name()} | Ошибка в логике бота: {e}")
