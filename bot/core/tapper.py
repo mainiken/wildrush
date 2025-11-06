@@ -1427,15 +1427,22 @@ class WildRush(BaseBot, AdsViewMixin):
             if premium_active is True:
                 premium_state = await self.get_premium_state()
                 if premium_state:
-                    sleep_seconds = premium_state.get("sleep_seconds", 0)
-                    hours = sleep_seconds // 3600
-                    minutes = (sleep_seconds % 3600) // 60
-                    seconds = sleep_seconds % 60
-                    logger.info(
-                        f"{self.EMOJI['info']} {self._get_session_name()} | "
-                        f"Премиум активен | Следующий клейм через: "
-                        f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-                    )
+                    sleep_seconds = int(premium_state.get("sleep_seconds", 0))
+                    if sleep_seconds <= 0:
+                        logger.info(
+                            f"{self.EMOJI['info']} {self._get_session_name()} | "
+                            f"Премиум активен | Время клейма наступило — получаю награду"
+                        )
+                        await self.claim_premium_reward()
+                    else:
+                        hours = sleep_seconds // 3600
+                        minutes = (sleep_seconds % 3600) // 60
+                        seconds = sleep_seconds % 60
+                        logger.info(
+                            f"{self.EMOJI['info']} {self._get_session_name()} | "
+                            f"Премиум активен | Следующий клейм через: "
+                            f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                        )
                 else:
                     logger.warning(
                         f"{self.EMOJI['warning']} {self._get_session_name()} | "
